@@ -1,0 +1,243 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Shop Billing Pro</title>
+    <!-- Load React, Tailwind, and Icons from CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { -webkit-tap-highlight-color: transparent; }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // Simple Icon Component for CDN version
+        const Icon = ({ name, size = 20, className = "" }) => {
+            useEffect(() => { lucide.createIcons(); }, []);
+            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
+        };
+
+        const App = () => {
+            const appId = "shop-billing-v2";
+            const [view, setView] = useState('billing'); // billing, history, menu
+            const [menu, setMenu] = useState([]);
+            const [orderHistory, setOrderHistory] = useState([]);
+            const [currentOrder, setCurrentOrder] = useState({});
+            const [srn, setSrn] = useState('');
+            const [newItem, setNewItem] = useState({ name: '', price: '' });
+
+            // Load Data
+            useEffect(() => {
+                const savedMenu = localStorage.getItem(`${appId}_menu`);
+                const savedHistory = localStorage.getItem(`${appId}_history`);
+                if (savedMenu) setMenu(JSON.parse(savedMenu));
+                if (savedHistory) setOrderHistory(JSON.parse(savedHistory));
+            }, []);
+
+            // Save Data
+            useEffect(() => { localStorage.setItem(`${appId}_menu`, JSON.stringify(menu)); }, [menu]);
+            useEffect(() => { localStorage.setItem(`${appId}_history`, JSON.stringify(orderHistory)); }, [orderHistory]);
+
+            const updateQty = (id, delta) => {
+                setCurrentOrder(prev => {
+                    const next = (prev[id] || 0) + delta;
+                    const updated = { ...prev };
+                    if (next <= 0) delete updated[id];
+                    else updated[id] = next;
+                    return updated;
+                });
+            };
+
+            const totalAmount = useMemo(() => {
+                return Object.entries(currentOrder).reduce((sum, [id, qty]) => {
+                    const item = menu.find(m => m.id === id);
+                    return sum + (item ? item.price * qty : 0);
+                }, 0);
+            }, [currentOrder, menu]);
+
+            const handlePlaceOrder = () => {
+                if (!srn) return alert("Please enter SRN Number");
+                if (Object.keys(currentOrder).length === 0) return alert("Select items first");
+
+                const billItems = Object.entries(currentOrder).map(([id, qty], index) => {
+                    const item = menu.find(m => m.id === id);
+                    return { sl: index + 1, name: item.name, qty, price: item.price, sub: item.price * qty };
+                });
+
+                const entry = {
+                    id: Date.now(),
+                    srn,
+                    time: new Date().toLocaleString(),
+                    items: billItems,
+                    total: totalAmount
+                };
+
+                setOrderHistory([entry, ...orderHistory]);
+                setCurrentOrder({});
+                setSrn('');
+                setView('history');
+                setTimeout(() => lucide.createIcons(), 100);
+            };
+
+            const exportCSV = () => {
+                let csv = "SRN,Date,Item,Qty,Price,Total\n";
+                orderHistory.forEach(o => {
+                    o.items.forEach(i => {
+                        csv += `${o.srn},${o.time},${i.name},${i.qty},${i.price},${o.total}\n`;
+                    });
+                });
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Report_${new Date().toLocaleDateString()}.csv`;
+                a.click();
+            };
+
+            return (
+                <div className="flex flex-col min-h-screen max-w-md mx-auto bg-white shadow-xl">
+                    {/* Header */}
+                    <header className="bg-blue-600 text-white p-4 sticky top-0 z-50 flex justify-between items-center shadow-md">
+                        <h1 className="text-xl font-black tracking-tight">SHOP BILL PRO</h1>
+                        <button onClick={() => {setView('menu'); setTimeout(()=>lucide.createIcons(), 50)}} className="p-2 bg-blue-500 rounded-full">
+                            <Icon name="settings" size={20} />
+                        </button>
+                    </header>
+
+                    <main className="flex-1 overflow-y-auto pb-24 p-4">
+                        {view === 'billing' && (
+                            <div className="space-y-4">
+                                <div className="space-y-2">
+                                    <h2 className="text-xs font-bold text-slate-400 uppercase">Menu Calculator</h2>
+                                    {menu.length === 0 ? (
+                                        <div className="p-10 text-center border-2 border-dashed rounded-xl text-slate-400">Add items in Settings</div>
+                                    ) : (
+                                        menu.map(item => (
+                                            <div key={item.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                                <div className="flex-1">
+                                                    <div className="font-bold">{item.name}</div>
+                                                    <div className="text-blue-600 font-bold text-sm">₹{item.price}</div>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <button onClick={() => updateQty(item.id, -1)} className="w-10 h-10 rounded-full bg-white border shadow-sm flex items-center justify-center text-red-500 active:scale-90"><Icon name="minus" size={18}/></button>
+                                                    <span className="font-black text-lg w-6 text-center">{currentOrder[item.id] || 0}</span>
+                                                    <button onClick={() => updateQty(item.id, 1)} className="w-10 h-10 rounded-full bg-blue-600 shadow-md flex items-center justify-center text-white active:scale-90"><Icon name="plus" size={18}/></button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+
+                                <div className="bg-white p-4 rounded-2xl border-2 border-blue-100 shadow-xl space-y-4 sticky bottom-2">
+                                    <h3 className="font-black text-blue-900">BILLING SECTION</h3>
+                                    <input 
+                                        type="number" 
+                                        inputMode="numeric" 
+                                        placeholder="ENTER SRN NUMBER"
+                                        value={srn}
+                                        onChange={e => setSrn(e.target.value)}
+                                        className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-mono text-xl focus:border-blue-500 outline-none"
+                                    />
+                                    <div className="bg-blue-50 p-3 rounded-xl text-xs space-y-1 font-medium">
+                                        {Object.keys(currentOrder).length === 0 ? "No items selected..." : 
+                                            Object.entries(currentOrder).map(([id, qty], idx) => {
+                                                const itm = menu.find(m => m.id === id);
+                                                return <div key={id}>{idx+1}. {itm.name} * {qty} = ₹{itm.price * qty}</div>
+                                            })
+                                        }
+                                    </div>
+                                    <div className="flex justify-between items-center px-1">
+                                        <span className="font-bold text-slate-400">TOTAL</span>
+                                        <span className="text-3xl font-black text-blue-600">₹{totalAmount}</span>
+                                    </div>
+                                    <button onClick={handlePlaceOrder} className="w-full bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-transform">PLACE ORDER</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {view === 'history' && (
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-xl font-black text-slate-800">DAY HISTORY</h2>
+                                    <button onClick={exportCSV} className="bg-green-600 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1"><Icon name="download" size={14}/> CSV</button>
+                                </div>
+                                <div className="bg-white rounded-xl border overflow-hidden">
+                                    <table className="w-full text-xs text-left">
+                                        <thead className="bg-slate-100 font-bold">
+                                            <tr>
+                                                <th className="p-3">SRN</th>
+                                                <th className="p-3">BILL DETAILS</th>
+                                                <th className="p-3 text-right">TOTAL</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {orderHistory.map(o => (
+                                                <tr key={o.id} className="border-t">
+                                                    <td className="p-3 font-mono font-bold text-blue-600 align-top">{o.srn}</td>
+                                                    <td className="p-3 space-y-1">
+                                                        <div className="text-[10px] text-slate-400">{o.time}</div>
+                                                        {o.items.map(i => <div key={i.sl}>{i.sl}. {i.name} ({i.qty}*{i.price})</div>)}
+                                                    </td>
+                                                    <td className="p-3 text-right font-black align-top">₹{o.total}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <button onClick={() => {if(confirm("Clear day sheet?")) setOrderHistory([])}} className="w-full py-3 text-red-500 text-xs font-bold uppercase tracking-widest">Clear All Records</button>
+                            </div>
+                        )}
+
+                        {view === 'menu' && (
+                            <div className="space-y-6">
+                                <h2 className="text-xl font-black">CATALOGUE EDIT</h2>
+                                <div className="p-4 bg-slate-900 rounded-2xl text-white space-y-3">
+                                    <input placeholder="Item Name" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="w-full p-3 bg-slate-800 rounded-lg outline-none border border-slate-700"/>
+                                    <input type="number" placeholder="Price (₹)" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} className="w-full p-3 bg-slate-800 rounded-lg outline-none border border-slate-700"/>
+                                    <button onClick={() => {
+                                        if(!newItem.name || !newItem.price) return;
+                                        setMenu([...menu, {id: Date.now().toString(), name: newItem.name, price: parseFloat(newItem.price)}]);
+                                        setNewItem({name:'', price:''});
+                                    }} className="w-full bg-blue-500 p-3 rounded-lg font-bold">ADD TO MENU</button>
+                                </div>
+                                <div className="space-y-2">
+                                    {menu.map(item => (
+                                        <div key={item.id} className="flex justify-between items-center p-4 bg-white border rounded-xl">
+                                            <div><div className="font-bold">{item.name}</div><div className="text-blue-600 font-bold text-sm">₹{item.price}</div></div>
+                                            <button onClick={() => setMenu(menu.filter(m => m.id !== item.id))} className="text-red-400"><Icon name="trash-2" size={20}/></button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    {/* Navbar */}
+                    <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t flex justify-around p-4 z-50 shadow-2xl">
+                        <button onClick={() => {setView('billing'); setTimeout(()=>lucide.createIcons(), 50)}} className={view==='billing'?'text-blue-600':'text-slate-300'}><Icon name="receipt" /></button>
+                        <button onClick={() => {setView('history'); setTimeout(()=>lucide.createIcons(), 50)}} className={view==='history'?'text-blue-600':'text-slate-300'}><Icon name="history" /></button>
+                        <button onClick={() => {setView('menu'); setTimeout(()=>lucide.createIcons(), 50)}} className={view==='menu'?'text-blue-600':'text-slate-300'}><Icon name="settings" /></button>
+                    </nav>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
+
+```
